@@ -3,7 +3,10 @@
 class FusionspaceHpr < Formula
   desc "Flight simulator for hobby and high-power rockets"
   homepage "https://hpr.fusionspace.co"
-  license any_of: ["MIT", "Apache-2.0"]
+  license all_of: [
+    { any_of: ["MIT", "Apache-2.0"] },
+    "Apache-2.0",
+  ]
 
   on_macos do
     depends_on arch: :arm64
