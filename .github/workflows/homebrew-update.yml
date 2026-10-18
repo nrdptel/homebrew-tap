@@ -1,0 +1,64 @@
+name: Update the formula
+
+# Copies the latest FusionSpace HPR release's Homebrew formula into Formula/fusionspace-hpr.rb and
+# commits it when it changed. The formula is a release asset, fusionspace-hpr.rb, written by the
+# release workflow of nrdptel/fusionspace-eridanus from the release's own archives. Runs daily and
+# by hand (Actions, then Run workflow). It reads the public release and pushes here with this
+# repository's own token; no other credential is involved.
+#
+# GitHub turns off scheduled workflows in a public repository after 60 days without activity: if
+# this one shows as disabled, enable it on its Actions page (or
+# `gh workflow enable homebrew-update.yml --repo nrdptel/homebrew-tap`) and run it once by hand.
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-formula
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Fetch the latest release's formula
+        id: fetch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE: nrdptel/fusionspace-eridanus
+        run: |
+          set -euo pipefail
+          # The latest published release; drafts and pre-releases are never "latest".
+          tag="$(gh api "repos/$SOURCE/releases/latest" --jq .tag_name)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if ! gh api "repos/$SOURCE/releases/tags/$tag" --jq '.assets[].name' | grep -qx fusionspace-hpr.rb; then
+            echo "::notice::$tag has no fusionspace-hpr.rb; the formula stays as it is"
+            exit 0
+          fi
+          gh release download "$tag" --repo "$SOURCE" --pattern fusionspace-hpr.rb --dir "$RUNNER_TEMP" --clobber
+          new="$RUNNER_TEMP/fusionspace-hpr.rb"
+          # The file must be Ruby, the formula's class, and download the release's own archives.
+          ruby -c "$new"
+          grep -qx 'class FusionspaceHpr < Formula' "$new"
+          grep -q "releases/download/$tag/fusionspace-hpr-${tag#v}-" "$new"
+          mkdir -p Formula
+          cp "$new" Formula/fusionspace-hpr.rb
+      - name: Commit it if it changed
+        env:
+          TAG: ${{ steps.fetch.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git add Formula/fusionspace-hpr.rb
+          if git diff --cached --quiet; then
+            echo "The formula is already ${TAG#v}'s."
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "fusionspace-hpr ${TAG#v}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
